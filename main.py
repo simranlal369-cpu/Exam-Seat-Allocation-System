@@ -1,521 +1,342 @@
-import tkinter as tk
-from tkinter import ttk, messagebox
-import sqlite3
+"""Exam Seat Allocation System - Tkinter GUI with SQLite database."""
+
 import random
+import sqlite3
+import tkinter as tk
+from tkinter import messagebox, ttk
+
+DATABASE_NAME = "exam_seating.db"
+BACKGROUND = "#f2f5f9"
+HEADER = "#243b55"
 
 
-# ==========================================
-# 1. DATABASE CONNECTION
-# ==========================================
+class ExamSeatAllocationApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Exam Seat Allocation System")
+        self.root.geometry("1050x700")
+        self.root.minsize(900, 600)
+        self.root.configure(bg=BACKGROUND)
 
-conn = sqlite3.connect("exam_seating.db")
-cursor = conn.cursor()
+        self.conn = sqlite3.connect(DATABASE_NAME)
+        self.conn.execute("PRAGMA foreign_keys = ON")
+        self.create_tables()
+        self.build_interface()
+        self.view_students()
+        self.root.protocol("WM_DELETE_WINDOW", self.close_application)
 
-# Student table
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS students (
-    roll_no TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    course TEXT NOT NULL
-)
-""")
+    def create_tables(self):
+        """Create the required database tables if they do not exist."""
+        with self.conn:
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS students (
+                    roll_no TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    course TEXT NOT NULL
+                )
+            """)
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS rooms (
+                    room_no TEXT PRIMARY KEY,
+                    capacity INTEGER NOT NULL CHECK (capacity > 0)
+                )
+            """)
+            self.conn.execute("""
+                CREATE TABLE IF NOT EXISTS allocations (
+                    roll_no TEXT PRIMARY KEY,
+                    room_no TEXT NOT NULL,
+                    seat_no INTEGER NOT NULL CHECK (seat_no > 0),
+                    FOREIGN KEY (roll_no) REFERENCES students(roll_no)
+                        ON DELETE CASCADE,
+                    FOREIGN KEY (room_no) REFERENCES rooms(room_no)
+                        ON DELETE CASCADE,
+                    UNIQUE (room_no, seat_no)
+                )
+            """)
 
-# Examination room table
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS rooms (
-    room_no TEXT PRIMARY KEY,
-    capacity INTEGER NOT NULL
-)
-""")
-
-# Seat allocation table
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS allocations (
-    roll_no TEXT PRIMARY KEY,
-    room_no TEXT NOT NULL,
-    seat_no INTEGER NOT NULL
-)
-""")
-
-conn.commit()
-
-
-# ==========================================
-# 2. MAIN WINDOW
-# ==========================================
-
-root = tk.Tk()
-root.title("Exam Seat Allocation System")
-root.geometry("950x650")
-root.configure(bg="#f2f5f9")
-
-
-# ==========================================
-# 3. TITLE
-# ==========================================
-
-title = tk.Label(
-    root,
-    text="EXAM SEAT ALLOCATION SYSTEM",
-    font=("Arial", 20, "bold"),
-    bg="#243b55",
-    fg="white",
-    pady=15
-)
-title.pack(fill="x")
-
-
-# ==========================================
-# 4. INPUT FRAME
-# ==========================================
-
-input_frame = tk.Frame(root, bg="#f2f5f9")
-input_frame.pack(pady=15)
-
-
-# Student inputs
-tk.Label(
-    input_frame,
-    text="Roll Number:",
-    bg="#f2f5f9"
-).grid(row=0, column=0, padx=5, pady=5, sticky="w")
-
-roll_entry = tk.Entry(input_frame, width=22)
-roll_entry.grid(row=0, column=1, padx=5, pady=5)
-
-
-tk.Label(
-    input_frame,
-    text="Student Name:",
-    bg="#f2f5f9"
-).grid(row=0, column=2, padx=5, pady=5, sticky="w")
-
-name_entry = tk.Entry(input_frame, width=22)
-name_entry.grid(row=0, column=3, padx=5, pady=5)
-
-
-tk.Label(
-    input_frame,
-    text="Course:",
-    bg="#f2f5f9"
-).grid(row=1, column=0, padx=5, pady=5, sticky="w")
-
-course_entry = tk.Entry(input_frame, width=22)
-course_entry.grid(row=1, column=1, padx=5, pady=5)
-
-
-# Room inputs
-tk.Label(
-    input_frame,
-    text="Room Number:",
-    bg="#f2f5f9"
-).grid(row=1, column=2, padx=5, pady=5, sticky="w")
-
-room_entry = tk.Entry(input_frame, width=22)
-room_entry.grid(row=1, column=3, padx=5, pady=5)
-
-
-tk.Label(
-    input_frame,
-    text="Room Capacity:",
-    bg="#f2f5f9"
-).grid(row=2, column=2, padx=5, pady=5, sticky="w")
-
-capacity_entry = tk.Entry(input_frame, width=22)
-capacity_entry.grid(row=2, column=3, padx=5, pady=5)
-
-
-# ==========================================
-# 5. DISPLAY TABLE
-# ==========================================
-
-table_frame = tk.Frame(root)
-table_frame.pack(fill="both", expand=True, padx=20, pady=10)
-
-columns = ("Roll No", "Student Name", "Course", "Room No", "Seat No")
-
-table = ttk.Treeview(
-    table_frame,
-    columns=columns,
-    show="headings"
-)
-
-for column in columns:
-    table.heading(column, text=column)
-    table.column(column, width=160, anchor="center")
-
-table.pack(fill="both", expand=True)
-
-
-# ==========================================
-# 6. CLEAR DISPLAY TABLE
-# ==========================================
-
-def clear_table():
-    for item in table.get_children():
-        table.delete(item)
-
-
-# ==========================================
-# 7. ADD STUDENT
-# ==========================================
-
-def add_student():
-    roll = roll_entry.get().strip()
-    name = name_entry.get().strip()
-    course = course_entry.get().strip()
-
-    if not roll or not name or not course:
-        messagebox.showwarning(
-            "Missing Information",
-            "Please enter roll number, name, and course."
+    def build_interface(self):
+        title = tk.Label(
+            self.root, text="EXAM SEAT ALLOCATION SYSTEM",
+            font=("Arial", 20, "bold"), bg=HEADER, fg="white", pady=16
         )
-        return
+        title.pack(fill="x")
 
-    try:
-        cursor.execute(
-            "INSERT INTO students VALUES (?, ?, ?)",
-            (roll, name, course)
+        input_frame = tk.LabelFrame(
+            self.root, text="Student and Room Details",
+            font=("Arial", 10, "bold"), bg=BACKGROUND, padx=12, pady=10
         )
+        input_frame.pack(fill="x", padx=20, pady=15)
 
-        conn.commit()
+        self.roll_entry = self.add_labeled_entry(input_frame, "Roll Number:", 0, 0)
+        self.name_entry = self.add_labeled_entry(input_frame, "Student Name:", 0, 2)
+        self.course_entry = self.add_labeled_entry(input_frame, "Course:", 1, 0)
+        self.room_entry = self.add_labeled_entry(input_frame, "Room Number:", 1, 2)
+        self.capacity_entry = self.add_labeled_entry(input_frame, "Room Capacity:", 2, 2)
 
-        messagebox.showinfo(
-            "Success",
-            "Student added successfully!"
+        table_frame = tk.Frame(self.root, bg=BACKGROUND)
+        table_frame.pack(fill="both", expand=True, padx=20, pady=5)
+        columns = ("Roll No", "Student Name", "Course", "Room No", "Seat No")
+        self.table = ttk.Treeview(table_frame, columns=columns, show="headings", height=14)
+
+        for column in columns:
+            self.table.heading(column, text=column)
+            self.table.column(column, width=170, anchor="center")
+
+        y_scroll = ttk.Scrollbar(table_frame, orient="vertical", command=self.table.yview)
+        x_scroll = ttk.Scrollbar(table_frame, orient="horizontal", command=self.table.xview)
+        self.table.configure(yscrollcommand=y_scroll.set, xscrollcommand=x_scroll.set)
+        self.table.grid(row=0, column=0, sticky="nsew")
+        y_scroll.grid(row=0, column=1, sticky="ns")
+        x_scroll.grid(row=1, column=0, sticky="ew")
+        table_frame.rowconfigure(0, weight=1)
+        table_frame.columnconfigure(0, weight=1)
+
+        button_frame = tk.Frame(self.root, bg=BACKGROUND)
+        button_frame.pack(pady=12)
+        buttons = [
+            ("Add Student", self.add_student, "#287a4b"),
+            ("Add Room", self.add_room, "#287a4b"),
+            ("View Students", self.view_students, "#2867a5"),
+            ("Allocate Seats", self.allocate_seats, "#a65a17"),
+            ("View Allocations", self.view_allocations, "#2867a5"),
+            ("Search Student", self.search_student, "#6a42a5"),
+            ("Clear Table", self.clear_table, "#555555"),
+            ("Exit", self.close_application, "#b52b35"),
+        ]
+        for index, (label, command, color) in enumerate(buttons):
+            row, column = divmod(index, 4)
+            tk.Button(
+                button_frame, text=label, command=command, width=17,
+                bg=color, fg="white", activebackground=color,
+                activeforeground="white", relief="flat", cursor="hand2",
+                padx=5, pady=7
+            ).grid(row=row, column=column, padx=6, pady=5)
+
+        self.status_label = tk.Label(
+            self.root, text="Ready", anchor="w", bg="#e3eaf2",
+            fg=HEADER, padx=12, pady=5
         )
+        self.status_label.pack(fill="x", side="bottom")
 
-        roll_entry.delete(0, tk.END)
-        name_entry.delete(0, tk.END)
-        course_entry.delete(0, tk.END)
-
-        view_students()
-
-    except sqlite3.IntegrityError:
-        messagebox.showerror(
-            "Error",
-            "This roll number already exists."
+    @staticmethod
+    def add_labeled_entry(parent, label_text, row, column):
+        tk.Label(parent, text=label_text, bg=BACKGROUND, anchor="w").grid(
+            row=row, column=column, padx=6, pady=7, sticky="w"
         )
+        entry = tk.Entry(parent, width=24)
+        entry.grid(row=row, column=column + 1, padx=6, pady=7, sticky="ew")
+        return entry
 
+    def set_status(self, message):
+        self.status_label.config(text=message)
 
-# ==========================================
-# 8. ADD EXAMINATION ROOM
-# ==========================================
+    def clear_table(self):
+        for item in self.table.get_children():
+            self.table.delete(item)
+        self.set_status("Table cleared.")
 
-def add_room():
-    room = room_entry.get().strip()
-    capacity = capacity_entry.get().strip()
+    def clear_student_fields(self):
+        for entry in (self.roll_entry, self.name_entry, self.course_entry):
+            entry.delete(0, tk.END)
 
-    if not room or not capacity:
-        messagebox.showwarning(
-            "Missing Information",
-            "Please enter room number and capacity."
-        )
-        return
+    def clear_room_fields(self):
+        self.room_entry.delete(0, tk.END)
+        self.capacity_entry.delete(0, tk.END)
 
-    try:
-        capacity = int(capacity)
-
-        if capacity <= 0:
-            messagebox.showerror(
-                "Invalid Capacity",
-                "Capacity must be greater than zero."
+    def add_student(self):
+        roll = self.roll_entry.get().strip()
+        name = self.name_entry.get().strip()
+        course = self.course_entry.get().strip()
+        if not all((roll, name, course)):
+            messagebox.showwarning(
+                "Missing Information",
+                "Please enter the roll number, student name, and course."
             )
             return
-
-        cursor.execute(
-            "INSERT INTO rooms VALUES (?, ?)",
-            (room, capacity)
-        )
-
-        conn.commit()
-
-        messagebox.showinfo(
-            "Success",
-            "Examination room added successfully!"
-        )
-
-        room_entry.delete(0, tk.END)
-        capacity_entry.delete(0, tk.END)
-
-    except ValueError:
-        messagebox.showerror(
-            "Invalid Input",
-            "Room capacity must be a whole number."
-        )
-
-    except sqlite3.IntegrityError:
-        messagebox.showerror(
-            "Error",
-            "This room number already exists."
-        )
-
-
-# ==========================================
-# 9. VIEW ALL STUDENTS
-# ==========================================
-
-def view_students():
-    clear_table()
-
-    cursor.execute("""
-        SELECT roll_no, name, course
-        FROM students
-        ORDER BY roll_no
-    """)
-
-    students = cursor.fetchall()
-
-    for student in students:
-        table.insert(
-            "",
-            tk.END,
-            values=(student[0], student[1], student[2], "-", "-")
-        )
-
-
-# ==========================================
-# 10. GENERATE SEAT ALLOCATION
-# ==========================================
-
-def allocate_seats():
-    cursor.execute("""
-        SELECT roll_no, name, course
-        FROM students
-    """)
-
-    students = cursor.fetchall()
-
-    cursor.execute("""
-        SELECT room_no, capacity
-        FROM rooms
-        ORDER BY room_no
-    """)
-
-    rooms = cursor.fetchall()
-
-    if not students:
-        messagebox.showwarning(
-            "No Students",
-            "Please add students before allocating seats."
-        )
-        return
-
-    if not rooms:
-        messagebox.showwarning(
-            "No Rooms",
-            "Please add examination rooms first."
-        )
-        return
-
-    total_capacity = sum(room[1] for room in rooms)
-
-    if len(students) > total_capacity:
-        messagebox.showerror(
-            "Insufficient Seats",
-            f"Students: {len(students)}\n"
-            f"Available seats: {total_capacity}\n\n"
-            "Please add more rooms or increase capacity."
-        )
-        return
-
-    # Randomize the order of students
-    random.shuffle(students)
-
-    # Start a new allocation
-    cursor.execute("DELETE FROM allocations")
-
-    student_index = 0
-
-    for room_no, capacity in rooms:
-
-        for seat_no in range(1, capacity + 1):
-
-            if student_index >= len(students):
-                break
-
-            roll_no = students[student_index][0]
-
-            cursor.execute("""
-                INSERT INTO allocations
-                (roll_no, room_no, seat_no)
-                VALUES (?, ?, ?)
-            """, (roll_no, room_no, seat_no))
-
-            student_index += 1
-
-        if student_index >= len(students):
-            break
-
-    conn.commit()
-
-    view_allocations()
-
-    messagebox.showinfo(
-        "Success",
-        f"Seat allocation completed!\n"
-        f"Students allocated: {len(students)}"
-    )
-
-
-# ==========================================
-# 11. VIEW SEAT ALLOCATIONS
-# ==========================================
-
-def view_allocations():
-    clear_table()
-
-    cursor.execute("""
-        SELECT
-            students.roll_no,
-            students.name,
-            students.course,
-            allocations.room_no,
-            allocations.seat_no
-        FROM students
-        INNER JOIN allocations
-        ON students.roll_no = allocations.roll_no
-        ORDER BY allocations.room_no, allocations.seat_no
-    """)
-
-    records = cursor.fetchall()
-
-    for record in records:
-        table.insert("", tk.END, values=record)
-
-
-# ==========================================
-# 12. SEARCH STUDENT
-# ==========================================
-
-def search_student():
-    roll = roll_entry.get().strip()
-
-    if not roll:
-        messagebox.showwarning(
-            "Input Required",
-            "Enter the student's roll number in the Roll Number field."
-        )
-        return
-
-    clear_table()
-
-    cursor.execute("""
-        SELECT
-            students.roll_no,
-            students.name,
-            students.course,
-            allocations.room_no,
-            allocations.seat_no
-        FROM students
-        LEFT JOIN allocations
-        ON students.roll_no = allocations.roll_no
-        WHERE students.roll_no = ?
-    """, (roll,))
-
-    record = cursor.fetchone()
-
-    if record:
-        table.insert("", tk.END, values=record)
-    else:
-        messagebox.showinfo(
-            "Not Found",
-            "No student found with this roll number."
-        )
-
-
-# ==========================================
-# 13. BUTTONS
-# ==========================================
-
-button_frame = tk.Frame(root, bg="#f2f5f9")
-button_frame.pack(pady=12)
-
-
-tk.Button(
-    button_frame,
-    text="Add Student",
-    command=add_student,
-    width=15,
-    bg="#287a4b",
-    fg="white"
-).grid(row=0, column=0, padx=5, pady=5)
-
-
-tk.Button(
-    button_frame,
-    text="Add Room",
-    command=add_room,
-    width=15,
-    bg="#287a4b",
-    fg="white"
-).grid(row=0, column=1, padx=5, pady=5)
-
-
-tk.Button(
-    button_frame,
-    text="View Students",
-    command=view_students,
-    width=15,
-    bg="#2867a5",
-    fg="white"
-).grid(row=0, column=2, padx=5, pady=5)
-
-
-tk.Button(
-    button_frame,
-    text="Allocate Seats",
-    command=allocate_seats,
-    width=15,
-    bg="#a65a17",
-    fg="white"
-).grid(row=0, column=3, padx=5, pady=5)
-
-
-tk.Button(
-    button_frame,
-    text="View Allocations",
-    command=view_allocations,
-    width=15,
-    bg="#2867a5",
-    fg="white"
-).grid(row=1, column=0, padx=5, pady=5)
-
-
-tk.Button(
-    button_frame,
-    text="Search Student",
-    command=search_student,
-    width=15,
-    bg="#6a42a5",
-    fg="white"
-).grid(row=1, column=1, padx=5, pady=5)
-
-
-tk.Button(
-    button_frame,
-    text="Clear Table",
-    command=clear_table,
-    width=15,
-    bg="#555555",
-    fg="white"
-).grid(row=1, column=2, padx=5, pady=5)
-
-
-tk.Button(
-    button_frame,
-    text="Exit",
-    command=root.destroy,
-    width=15,
-    bg="#b52b35",
-    fg="white"
-).grid(row=1, column=3, padx=5, pady=5)
-
-
-# ==========================================
-# 14. START APPLICATION
-# ==========================================
-
-root.mainloop()
-
-conn.close()
+        try:
+            with self.conn:
+                self.conn.execute(
+                    "INSERT INTO students (roll_no, name, course) VALUES (?, ?, ?)",
+                    (roll, name, course)
+                )
+            self.clear_student_fields()
+            self.view_students()
+            self.set_status(f"Student {roll} added successfully.")
+            messagebox.showinfo("Success", "Student added successfully!")
+        except sqlite3.IntegrityError:
+            messagebox.showerror(
+                "Duplicate Roll Number", "A student with this roll number already exists."
+            )
+        except sqlite3.Error as error:
+            messagebox.showerror("Database Error", str(error))
+
+    def add_room(self):
+        room = self.room_entry.get().strip()
+        capacity_text = self.capacity_entry.get().strip()
+        if not room or not capacity_text:
+            messagebox.showwarning(
+                "Missing Information", "Please enter the room number and room capacity."
+            )
+            return
+        try:
+            capacity = int(capacity_text)
+            if capacity <= 0:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror(
+                "Invalid Capacity", "Room capacity must be a positive whole number."
+            )
+            return
+        try:
+            with self.conn:
+                self.conn.execute(
+                    "INSERT INTO rooms (room_no, capacity) VALUES (?, ?)",
+                    (room, capacity)
+                )
+            self.clear_room_fields()
+            self.set_status(f"Room {room} added with capacity {capacity}.")
+            messagebox.showinfo("Success", "Examination room added successfully!")
+        except sqlite3.IntegrityError:
+            messagebox.showerror(
+                "Duplicate Room", "A room with this room number already exists."
+            )
+        except sqlite3.Error as error:
+            messagebox.showerror("Database Error", str(error))
+
+    def display_records(self, records):
+        self.clear_table()
+        for record in records:
+            self.table.insert("", tk.END, values=record)
+        self.set_status(f"{len(records)} record(s) displayed.")
+
+    def view_students(self):
+        try:
+            records = self.conn.execute("""
+                SELECT roll_no, name, course, '-', '-'
+                FROM students ORDER BY roll_no
+            """).fetchall()
+            self.display_records(records)
+        except sqlite3.Error as error:
+            messagebox.showerror("Database Error", str(error))
+
+    def view_allocations(self):
+        try:
+            records = self.conn.execute("""
+                SELECT s.roll_no, s.name, s.course, a.room_no, a.seat_no
+                FROM allocations AS a
+                JOIN students AS s ON s.roll_no = a.roll_no
+                ORDER BY a.room_no, a.seat_no
+            """).fetchall()
+            self.display_records(records)
+        except sqlite3.Error as error:
+            messagebox.showerror("Database Error", str(error))
+
+    def allocate_seats(self):
+        """Randomly assign one valid seat to every student."""
+        try:
+            students = self.conn.execute(
+                "SELECT roll_no FROM students ORDER BY roll_no"
+            ).fetchall()
+            rooms = self.conn.execute(
+                "SELECT room_no, capacity FROM rooms ORDER BY room_no"
+            ).fetchall()
+
+            if not students:
+                messagebox.showwarning(
+                    "No Students", "Please add students before allocating seats."
+                )
+                return
+            if not rooms:
+                messagebox.showwarning(
+                    "No Rooms", "Please add examination rooms first."
+                )
+                return
+
+            total_capacity = sum(capacity for _, capacity in rooms)
+            if len(students) > total_capacity:
+                messagebox.showerror(
+                    "Insufficient Seats",
+                    f"Students: {len(students)}\nAvailable seats: {total_capacity}\n\n"
+                    "Please add more rooms or increase room capacity."
+                )
+                return
+
+            roll_numbers = [row[0] for row in students]
+            random.shuffle(roll_numbers)
+            new_allocations = []
+            student_index = 0
+
+            for room_no, capacity in rooms:
+                for seat_no in range(1, capacity + 1):
+                    if student_index >= len(roll_numbers):
+                        break
+                    new_allocations.append(
+                        (roll_numbers[student_index], room_no, seat_no)
+                    )
+                    student_index += 1
+                if student_index >= len(roll_numbers):
+                    break
+
+            # Delete old allocations and insert new ones atomically.
+            with self.conn:
+                self.conn.execute("DELETE FROM allocations")
+                self.conn.executemany(
+                    """INSERT INTO allocations (roll_no, room_no, seat_no)
+                       VALUES (?, ?, ?)""",
+                    new_allocations
+                )
+
+            self.view_allocations()
+            self.set_status(f"Allocated seats to {len(new_allocations)} student(s).")
+            messagebox.showinfo(
+                "Allocation Complete",
+                "Seat allocation completed successfully!\n"
+                f"Students allocated: {len(new_allocations)}"
+            )
+        except sqlite3.Error as error:
+            messagebox.showerror(
+                "Allocation Error", f"The allocation could not be saved:\n{error}"
+            )
+
+    def search_student(self):
+        roll = self.roll_entry.get().strip()
+        if not roll:
+            messagebox.showwarning(
+                "Input Required",
+                "Enter the student's roll number in the Roll Number field."
+            )
+            return
+        try:
+            record = self.conn.execute("""
+                SELECT s.roll_no, s.name, s.course,
+                       COALESCE(a.room_no, '-'),
+                       COALESCE(CAST(a.seat_no AS TEXT), '-')
+                FROM students AS s
+                LEFT JOIN allocations AS a ON s.roll_no = a.roll_no
+                WHERE s.roll_no = ?
+            """, (roll,)).fetchone()
+            if record:
+                self.display_records([record])
+            else:
+                self.clear_table()
+                self.set_status(f"No student found for roll number {roll}.")
+                messagebox.showinfo(
+                    "Not Found", "No student found with this roll number."
+                )
+        except sqlite3.Error as error:
+            messagebox.showerror("Database Error", str(error))
+
+    def close_application(self):
+        if messagebox.askokcancel("Exit", "Are you sure you want to close the application?"):
+            self.conn.close()
+            self.root.destroy()
+
+
+def main():
+    root = tk.Tk()
+    ExamSeatAllocationApp(root)
+    root.mainloop()
+
+
+if __name__ == "__main__":
+    main()
