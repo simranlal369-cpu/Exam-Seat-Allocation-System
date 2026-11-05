@@ -35,7 +35,7 @@ The project aims to reduce manual effort, save time, minimize allocation errors,
 ```text
 Exam-Seat-Allocation-System/
 │
-├── exam_seat_allocation_refined.py
+├── main.py
 │
 ├── exam_seating.db
 │
